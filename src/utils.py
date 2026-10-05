@@ -2,6 +2,8 @@
 '''
 (C) Copyright 2021 Steven;
 @author: Steven kangweibaby@163.com
+(C) Copyright 2026 Zhang-ikun;
+@maintainer: Zhang-ikun 2439884871@qq.com
 @date: 2021-05-31
 '''
 
@@ -61,3 +63,17 @@ class attrdict(dict):
         import json
         data = json.loads(value)
         return cls.loads(data)
+
+
+def read_text(filename):
+    '''读取文本文件，兼容 utf-8 和 gb18030 编码'''
+
+    for encoding in ('utf8', 'gb18030'):
+        try:
+            with open(filename, encoding=encoding) as file:
+                return file.read()
+        except UnicodeDecodeError:
+            continue
+
+    with open(filename, encoding='utf8', errors='ignore') as file:
+        return file.read()

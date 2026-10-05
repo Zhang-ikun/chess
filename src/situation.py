@@ -1,6 +1,8 @@
 '''
 (C) Copyright 2021 Steven;
 @author: Steven kangweibaby@163.com
+(C) Copyright 2026 Zhang-ikun;
+@maintainer: Zhang-ikun 2439884871@qq.com
 @date: 2021-06-22
 用于局面 以及 走法生成 的数据结构
 '''
@@ -295,7 +297,7 @@ class Situation(Generator, Method):
         ui.show()
 
         if not hasapp:
-            app.exec_()
+            app.exec()
 
     @staticmethod
     def parse_move(move):
@@ -350,6 +352,7 @@ class Situation(Generator, Method):
             self.board[pos] = values[ch]
 
         if not match.group(5):
+            self.moves = []
             return True
 
         self.moves = []

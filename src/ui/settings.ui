@@ -177,8 +177,11 @@
          <pointsize>14</pointsize>
         </font>
        </property>
+       <property name="minimum">
+        <number>1</number>
+       </property>
        <property name="maximum">
-        <number>10</number>
+        <number>50</number>
        </property>
        <property name="value">
         <number>1</number>
@@ -282,8 +285,11 @@
          <pointsize>14</pointsize>
         </font>
        </property>
+       <property name="minimum">
+        <number>1</number>
+       </property>
        <property name="maximum">
-        <number>10</number>
+        <number>50</number>
        </property>
        <property name="value">
         <number>7</number>
@@ -437,6 +443,9 @@
          <pointsize>14</pointsize>
         </font>
        </property>
+       <property name="minimum">
+        <number>1</number>
+       </property>
        <property name="maximum">
         <number>100000</number>
        </property>
@@ -485,6 +494,9 @@
          <family>DengXian</family>
          <pointsize>14</pointsize>
         </font>
+       </property>
+       <property name="minimum">
+        <number>1</number>
        </property>
        <property name="maximum">
         <number>100000</number>

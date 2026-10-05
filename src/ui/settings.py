@@ -103,7 +103,8 @@ class Ui_Dialog(object):
         self.black_depth = QSpinBox(Dialog)
         self.black_depth.setObjectName(u"black_depth")
         self.black_depth.setFont(font)
-        self.black_depth.setMaximum(10)
+        self.black_depth.setMinimum(1)
+        self.black_depth.setMaximum(50)
         self.black_depth.setValue(1)
 
         self.gridLayout.addWidget(self.black_depth, 7, 3, 1, 1)
@@ -154,7 +155,8 @@ class Ui_Dialog(object):
         self.red_depth = QSpinBox(Dialog)
         self.red_depth.setObjectName(u"red_depth")
         self.red_depth.setFont(font)
-        self.red_depth.setMaximum(10)
+        self.red_depth.setMinimum(1)
+        self.red_depth.setMaximum(50)
         self.red_depth.setValue(7)
 
         self.gridLayout.addWidget(self.red_depth, 7, 1, 1, 1)
@@ -224,6 +226,7 @@ class Ui_Dialog(object):
         self.red_time = QSpinBox(Dialog)
         self.red_time.setObjectName(u"red_time")
         self.red_time.setFont(font)
+        self.red_time.setMinimum(1)
         self.red_time.setMaximum(100000)
         self.red_time.setValue(7)
 
@@ -250,6 +253,7 @@ class Ui_Dialog(object):
         self.black_time = QSpinBox(Dialog)
         self.black_time.setObjectName(u"black_time")
         self.black_time.setFont(font)
+        self.black_time.setMinimum(1)
         self.black_time.setMaximum(100000)
         self.black_time.setValue(1)
 
@@ -341,4 +345,3 @@ class Ui_Dialog(object):
         self.label_16.setText(QCoreApplication.translate("Dialog", u"\u603b\u662f\u5728\u4e0a", None))
         self.ontop.setText("")
     # retranslateUi
-

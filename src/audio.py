@@ -2,6 +2,8 @@
 '''
 (C) Copyright 2021 Steven;
 @author: Steven kangweibaby@163.com
+(C) Copyright 2026 Zhang-ikun;
+@maintainer: Zhang-ikun 2439884871@qq.com
 @date: 2021-05-31
 
 使用 pygame 播放音频
@@ -24,11 +26,23 @@ AUDIO_INVALID = str(dirpath / 'audios/invalid.wav')
 AUDIO_NEW_GAME = str(dirpath / 'audios/newgame.wav')
 
 
+ready = False
+sounds = {}
+
+
 def init():
-    pygame.mixer.init()
+    global ready
+    try:
+        pygame.mixer.init()
+        ready = True
+    except Exception as e:
+        logger.warning("audio init failed: %s", e)
 
 
 def play(audio_type):
+    if not ready:
+        return
+
     if audio_type == Chess.CAPTURE:
         audio = AUDIO_CAPTURE
     elif audio_type == Chess.MOVE:
@@ -44,6 +58,14 @@ def play(audio_type):
     else:
         return
 
+    sound = sounds.get(audio)
+    if sound is None:
+        try:
+            sound = pygame.mixer.Sound(audio)
+        except Exception as e:
+            logger.warning("load audio failed %s: %s", audio, e)
+            return
+        sounds[audio] = sound
+
     logger.info("play audio %s", audio)
-    pygame.mixer.music.load(audio)
-    pygame.mixer.music.play()
+    sound.play()

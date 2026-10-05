@@ -2,6 +2,8 @@
 '''
 (C) Copyright 2021 Steven;
 @author: Steven kangweibaby@163.com
+(C) Copyright 2026 Zhang-ikun;
+@maintainer: Zhang-ikun 2439884871@qq.com
 @date: 2021-05-31
 用于处理 UCCI 引擎，以及未来可能自己实现引擎留接口
 '''
@@ -403,7 +405,7 @@ class UCCIEngine(PipeEngine):
         if depth:
             command += f' depth {depth}'
         elif nodes:
-            command += f' nodes {depth}'
+            command += f' nodes {nodes}'
         elif time:
             time //= self.millisec
             command += f' time {time}'

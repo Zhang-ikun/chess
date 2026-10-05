@@ -144,7 +144,7 @@ class Manual(object):
             pos = NUMBERS[move[0]]
             type = 2
         else:
-            self.invalid_manual()
+            self.invalid_manual(line, move)
 
         ctype = chess & Chess.CMASK
         logger.debug("chess %s pos %s", chess, pos)
@@ -177,6 +177,8 @@ class Manual(object):
                 if len(columns[key]) < 2:
                     del columns[key]
             columns = sorted(columns.items(), key=lambda e: e[0], reverse=True)
+            if not columns:
+                self.invalid_manual(line, move)
             if move[0] == '前':
                 return tuple(columns[0][1][-1])
             elif move[0] == '中':
@@ -184,7 +186,7 @@ class Manual(object):
             elif move[0] == '后':
                 return tuple(columns[0][1][0])
 
-            index = self.numbers[move[0]]
+            index = NUMBERS[move[0]]
             counter = 1
             for idx, column in columns:
                 column = list(column)

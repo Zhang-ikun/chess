@@ -1,11 +1,15 @@
 # coding=utf-8
 
+import os
+import re
 import sys
 import time
 from functools import partial
 import threading
 
 import numpy as np
+from PIL import Image
+from PIL import ImageGrab
 
 import keyboard
 
@@ -27,9 +31,11 @@ import audio
 import engines
 import system
 from version import VERSION
+from utils import read_text
 
 from dialogs.settings import SettingsDialog
 from dialogs.method import MethodDialog
+from dialogs.debug import DebugDialog
 from toast import Toast
 
 from context import BaseContextMenu
@@ -38,6 +44,13 @@ from context import BaseContextMenuMixin
 from arrange import ArrangeBoard
 from manual import Manual
 import qqchess
+
+
+# 标准 FEN（可带着法序列）
+FEN_PATTERN = re.compile(
+    r'^\s*((?:[RNBAKCP1-9]+/){9}[RNBAKCP1-9]+ [wb] - - \d+ \d+'
+    r'(?: moves(?: [a-i]\d[a-i]\d)+)?)\s*$',
+    re.IGNORECASE)
 
 
 class GameSignal(QtCore.QObject):
@@ -61,6 +74,7 @@ class GameSignal(QtCore.QObject):
     nobestmove = QtCore.Signal(None)
 
     animate = QtCore.Signal(tuple, tuple)
+    engine_move = QtCore.Signal(tuple, tuple)
     settings = QtCore.Signal(None)
     method = QtCore.Signal(None)
     arrange = QtCore.Signal(None)
@@ -108,6 +122,9 @@ class Game(BoardFrame, BaseContextMenuMixin):
         audio.init()
 
         self.image = None
+        self.capture_failed = False
+
+        self.arrange_backup = None
 
         self.engine = None
         self.engines = {
@@ -134,6 +151,8 @@ class Game(BoardFrame, BaseContextMenuMixin):
 
         self.toast = Toast(self)
 
+        self.debug_dialog = DebugDialog(self)
+
         # 以下初始化信号
 
         keyboard.add_hotkey(
@@ -147,7 +166,8 @@ class Game(BoardFrame, BaseContextMenuMixin):
 
         self.game_signal.reverse.connect(self.reverse)
         self.game_signal.thinking.connect(self.set_thinking)
-        self.game_signal.settings.connect(self.settings.show)
+        self.game_signal.settings.connect(
+            lambda: self.show_dialog(self.settings))
         self.game_signal.hint.connect(self.hint)
         self.game_signal.undo.connect(self.undo)
         self.game_signal.redo.connect(self.redo)
@@ -170,6 +190,7 @@ class Game(BoardFrame, BaseContextMenuMixin):
         self.game_signal.resign.connect(lambda: self.toast.message('认输了！！！'))
 
         self.game_signal.animate.connect(self.animate)
+        self.game_signal.engine_move.connect(self.engine_move)
 
         self.settings.transprancy.valueChanged.connect(
             lambda e: self.setWindowOpacity((100 - e) / 100)
@@ -187,17 +208,16 @@ class Game(BoardFrame, BaseContextMenuMixin):
             lambda e: self.method.set_standard(e)
         )
 
-        self.settings.ontop.clicked.connect(self.set_on_top)
+        self.settings.ontop.toggled.connect(self.set_on_top)
 
         self.settings.ok.clicked.connect(self.accepted)
         self.settings.loads()
 
         self.game_signal.arrange.connect(self.arrange)
         self.board.signal.finish.connect(self.finish_arrange)
+        self.board.signal.cancel.connect(self.cancel_arrange)
 
-        self.game_signal.method.connect(
-            lambda: self.method.setVisible(
-                not self.method.isVisible()))
+        self.game_signal.method.connect(self.toggle_method)
         self.method.list.currentItemChanged.connect(self.method_changed)
 
         self.game_signal.connecting.connect(self.connecting)
@@ -211,31 +231,74 @@ class Game(BoardFrame, BaseContextMenuMixin):
         self.check_openfile()
 
     def set_on_top(self):
-        logger.info("set on top")
-        # self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
+        on_top = self.settings.ontop.isChecked()
+        logger.info("set on top %s", on_top)
+
+        self.apply_on_top(self, on_top)
+
+        # 已经打开的子窗口跟随置顶，避免被置顶的棋盘盖住
+        for dialog in (self.settings, self.method, self.debug_dialog):
+            if dialog.isVisible():
+                self.apply_on_top(dialog, on_top)
+
+    def show_dialog(self, dialog):
+        '''打开子窗口前，让它的置顶状态与设置保持一致'''
+        self.apply_on_top(dialog, self.settings.ontop.isChecked())
+        dialog.show()
+
+    def toggle_method(self):
+        if self.method.isVisible():
+            self.method.hide()
+        else:
+            self.show_dialog(self.method)
+
+    @staticmethod
+    def apply_on_top(widget, on_top):
+        handle = widget.windowHandle()
+        flags = handle.flags() if handle is not None else widget.windowFlags()
+        if on_top:
+            flags |= QtCore.Qt.WindowStaysOnTopHint
+        else:
+            flags &= ~QtCore.Qt.WindowStaysOnTopHint
+
+        if widget.isVisible() and handle is not None:
+            # 可见窗口：直接改窗口标志，避免窗口闪烁
+            handle.setFlags(flags)
+            return
+
+        # 隐藏窗口：同时同步 widget 与窗口句柄上的标志，保证下次显示时生效
+        widget.setWindowFlags(flags)
+        hidden_handle = widget.windowHandle()
+        if hidden_handle is not None:
+            hidden_handle.setFlags(flags)
+        if widget.isVisible():
+            widget.show()
 
     def check_openfile(self):
         # 直接打开棋谱文件
         if len(sys.argv) > 1:
-            with open(sys.argv[1], encoding='utf8') as file:
-                content = file.read()
+            try:
+                content = read_text(sys.argv[1])
+            except Exception as e:
+                logger.warning("open file failed %s", e)
+                self.toast.message(
+                    f"无法读取文件: {os.path.basename(sys.argv[1])}")
+                return
             self.pasre_content(content)
 
     def show_context_menu(self, point):
         if self.board.arranging:
-            return self.board.arrange_menu.exec_(self.mapToGlobal(point))
+            return self.board.arrange_menu.exec(self.mapToGlobal(point))
         self.game_menu.exec(self.mapToGlobal(point))
 
     def update_action_state(self):
-        if len(self.engine_side) == 2 and not self.engine.checkmate:
-            self.game_menu.setAllMenuEnabled(False)
-            self.game_menu.setAllShortcutEnabled(False)
-        elif self.thinking:
-            self.game_menu.setAllMenuEnabled(False)
-            self.game_menu.setAllShortcutEnabled(False)
-        else:
-            self.game_menu.setAllMenuEnabled(True)
-            self.game_menu.setAllShortcutEnabled(True)
+        disabled = (
+            self.board.arranging
+            or self.thinking
+            or (len(self.engine_side) == 2 and not self.engine.checkmate)
+        )
+        self.game_menu.setAllMenuEnabled(not disabled)
+        self.game_menu.setAllShortcutEnabled(not disabled)
 
     def set_thinking(self, thinking):
         self.thinking = thinking
@@ -249,15 +312,37 @@ class Game(BoardFrame, BaseContextMenuMixin):
         self.update_action_state()
 
     def arrange(self):
+        if self.board.arranging:
+            return
+        # 保存进入布局前的局面，便于"取消布局"时恢复
+        self.arrange_backup = {
+            'board': np.array(self.engine.sit.board, copy=True),
+            'turn': self.engine.sit.turn,
+        }
         self.board.arranging = True
         self.board.setBoard(self.board.board)
         self.board.setCheck(None)
-        self.game_menu.setAllShortcutEnabled(False)
+        self.update_action_state()
+
+    def cancel_arrange(self):
+        backup = self.arrange_backup
+        if backup is None:
+            return
+        logger.debug('cancel arrange')
+        self.arrange_backup = None
+        situation = self.engine.sit
+        situation.board = backup['board']
+        situation.turn = backup['turn']
+        situation.fen = situation.format_current_fen()
+        self.updateBoard()
+        self.board.setCheck(None)
+        self.update_action_state()
 
     def finish_arrange(self, finished):
         if not finished:
             return
         logger.debug('finish arrange')
+        self.arrange_backup = None
         self.engine.close()
         self.engine = Engine()
 
@@ -265,7 +350,7 @@ class Game(BoardFrame, BaseContextMenuMixin):
         self.engine.sit.turn = self.board.first_side
         self.engine.sit.fen = self.engine.sit.format_current_fen()
         self.try_engine_move()
-        self.game_menu.setAllShortcutEnabled(True)
+        self.update_action_state()
 
     def method_changed(self, item: QtWidgets.QListWidgetItem):
         index = self.method.list.indexFromItem(item).row()
@@ -376,6 +461,7 @@ class Game(BoardFrame, BaseContextMenuMixin):
 
         self.fpos = None
         self.board.arranging = False
+        self.arrange_backup = None
         self.thinking = False
         self.game_signal.move.emit(Chess.NEWGAME)
 
@@ -417,8 +503,12 @@ class Game(BoardFrame, BaseContextMenuMixin):
     @QtCore.Slot(None)
     def debug(self):
         logger.debug("debug slot.....")
-        qqchess.show(self.image)
-        # logger.debug(self.engine.sit.format_fen())
+        info = qqchess.classifier.get_debug_info()
+        self.image = info.get('window')
+        self.debug_dialog.refresh(info)
+        self.show_dialog(self.debug_dialog)
+        self.debug_dialog.raise_()
+        self.debug_dialog.activateWindow()
 
     @QtCore.Slot(None)
     def save(self):
@@ -435,7 +525,18 @@ class Game(BoardFrame, BaseContextMenuMixin):
         logger.info("save file %s - fen %s", filename, fen)
 
     def pasre_content(self, content: str):
-        if not content.startswith('fen '):
+        fen = None
+        for line in content.splitlines():
+            line = line.strip()
+            if line.startswith('fen '):
+                fen = line[4:]
+                break
+            match = FEN_PATTERN.match(line)
+            if match:
+                fen = match.group(1)
+                break
+
+        if fen is None:
             manual = Manual()
             try:
                 manual.callback = lambda fpos, tpos: self.board.setBoard(
@@ -447,9 +548,10 @@ class Game(BoardFrame, BaseContextMenuMixin):
             except Exception as e:
                 self.toast.message(str(e))
                 return
+            if not manual.sit.moves:
+                self.toast.message("没有识别到棋谱或 FEN 内容")
+                return
             fen = manual.sit.format_fen()
-        else:
-            fen = content[4:]
 
         self.engine.index = 0
         self.engine.stack = self.engine.stack[:1]
@@ -477,48 +579,129 @@ class Game(BoardFrame, BaseContextMenuMixin):
             self, "打开中国象棋文件 Fen", ".", "fen 文件 (*.fen);;txt 文件 (*.txt)")[0]
         if not filename:
             return
-        with open(filename, 'r', encoding='utf8') as file:
-            content = file.read()
+        try:
+            content = read_text(filename)
+        except Exception as e:
+            logger.warning("load file failed %s", e)
+            self.toast.message(f"无法读取文件: {os.path.basename(filename)}")
+            return
         self.pasre_content(content)
 
     def paste(self):
         content = QtWidgets.QApplication.clipboard().text()
         logger.debug('Clipboard text %s', content)
+
+        # 剪贴板里是文件路径/链接（某些程序"复制文件"放的是文本）时按文件处理
+        path = self.clipboard_path(content)
+        if path is not None:
+            self.paste_file(path)
+            return
+
+        image = ImageGrab.grabclipboard()
+        if isinstance(image, list) and image:
+            # 剪贴板里是复制的文件列表时，取第一个存在的文件
+            filename = next(
+                (name for name in image if os.path.exists(name)), None)
+            if filename is not None:
+                self.paste_file(filename)
+                return
+        if isinstance(image, Image.Image):
+            self.paste_image(image)
+            return
+
         if content:
             self.pasre_content(content)
             return
 
-        image = qqchess.ImageGrab.grabclipboard()
-        if isinstance(image, qqchess.Image.Image):
-            self.paste_image(image)
+        self.toast.message("剪贴板里没有可粘贴的棋谱或图片")
 
-    def capture(self):
-        logger.debug("capture...")
+    @staticmethod
+    def clipboard_path(content):
+        """剪贴板文本若是单个文件路径（含 file:// 链接）则返回该路径。"""
+        if not content:
+            return None
+
+        path = content.strip().strip('"')
+        if not path or '\n' in path:
+            return None
+        if path.lower().startswith('file:'):
+            path = QtCore.QUrl(path).toLocalFile()
+        if path and os.path.exists(path):
+            return path
+        return None
+
+    def paste_file(self, filename):
+        """粘贴文件：图片走识别载入，其他文件按棋谱文本解析。"""
+        logger.debug("paste file %s", filename)
+
+        try:
+            image = Image.open(filename)
+            image.load()
+        except Exception:
+            # 不是图片时，按棋谱文本读取
+            try:
+                content = read_text(filename)
+            except Exception:
+                self.toast.message(
+                    f"无法读取文件: {os.path.basename(filename)}")
+                return
+            self.pasre_content(content)
+            return
+
+        self.paste_image(image)
+
+    def paste_image(self, image):
+        """识别剪贴板里的棋盘图片，并把识别出的局面载入程序。"""
+        logger.debug("paste image %s", image)
+
+        pred = qqchess.classifier.get_board(image)
+        if pred is None:
+            info = qqchess.classifier.get_debug_info()
+            self.toast.message(
+                f"识别图片失败: {info.get('error') or '未知原因'}")
+            return
+
+        board, turn = self.check_board(self.pred_to_board(pred))
+        if board is None:
+            self.toast.message("识别图片失败: 不是合法的象棋局面")
+            return
+
+        logger.info("paste image turn %s", turn)
+        self.engine.index = 0
+        self.engine.sit = Situation(board, turn=turn)
+        self.engine.stack = [self.engine.sit]
+        self.fpos = None
+        # 载入的是图片里的局面，下一次连线截图会重新以游戏画面为准
+        self.connect_inited = False
+        self.updateBoard()
+        self.board.setCheck(None)
+        self.try_engine_move()
+        self.toast.message("已载入图片中的局面")
+
+    @staticmethod
+    def pred_to_board(pred):
         colors = {0: Chess.RMASK, 1: Chess.BMASK}
         board = np.zeros((9, 10), dtype=np.int8)
-        while True:
-            pred = qqchess.classifier.get_board()
-            board0 = board
-            board = np.zeros((9, 10), dtype=np.int8)
-            for loc, idx in pred.items():
-                board[loc] = (idx[0] + 1) | colors[idx[1]]
-            if np.all(board0 == board):
-                break
+        for loc, idx in pred.items():
+            board[loc] = (idx[0] + 1) | colors[idx[1]]
+        return board
 
+    def check_board(self, board):
+        """校验识别出的棋盘。返回 (对齐后的棋盘, 行棋方)，不合法返回 (None, None)。"""
         # 验证数量
         C = Chess
         wheres = np.argwhere((board == C.K) | (board == C.k))
         if len(wheres) != 2:
             logger.warning("bishop count error %s...", len(wheres))
-            return None
+            return None, None
 
         for where in wheres:
             if where[0] < 3 or where[0] > 5:
                 logger.warning("king location error %s...", where)
-                return None
+                return None, None
             if 2 < where[1] < 7:
                 logger.warning("king location error %s...", where)
-                return None
+                return None, None
 
         counts = {
             C.P: 5,
@@ -538,10 +721,11 @@ class Game(BoardFrame, BaseContextMenuMixin):
         for key, count in counts.items():
             wheres = np.argwhere(board == key)
             if len(wheres) > count:
-                logger.warning("chess count error %s > %s...", len(wheres), count)
-                return None
+                logger.warning(
+                    "chess count error %s > %s...", len(wheres), count)
+                return None, None
 
-        wheres = np.argwhere((board == C.B) | (board == C.B))
+        wheres = np.argwhere((board == C.B) | (board == C.b))
         for where in wheres:
             if tuple(where) not in {
                 (2, 0), (6, 0),
@@ -552,7 +736,7 @@ class Game(BoardFrame, BaseContextMenuMixin):
                 (2, 9), (6, 9),
             }:
                 logger.warning("bishop location error %s...", where)
-                return None
+                return None, None
 
         wheres = np.argwhere((board == C.A) | (board == C.a))
         for where in wheres:
@@ -565,7 +749,7 @@ class Game(BoardFrame, BaseContextMenuMixin):
                 (3, 9), (5, 9),
             }:
                 logger.warning("advisor location error %s...", where)
-                return None
+                return None, None
 
         wheres = np.argwhere(board == Chess.K)
 
@@ -576,6 +760,42 @@ class Game(BoardFrame, BaseContextMenuMixin):
             board = board[::-1, ::-1]
             self.settings.reverse.setChecked(True)
             turn = Chess.BLACK
+        return board, turn
+
+    def capture(self):
+        logger.debug("capture...")
+        # 连续多帧完全一致才认为画面稳定，避免抓到走子动画的中间帧
+        STABLE_FRAMES = 3
+        MAX_FRAMES = 10
+        boards = []
+        frames = 0
+        while frames < MAX_FRAMES:
+            frames += 1
+            pred = qqchess.classifier.get_board()
+            if pred is None:
+                logger.warning(
+                    "识别棋盘失败, 请确认天天象棋窗口可见且未被遮挡")
+                if not self.capture_failed:
+                    self.capture_failed = True
+                    self.toast.message(
+                        "识别失败: 请确认天天象棋窗口可见且未被遮挡")
+                return
+            self.capture_failed = False
+            boards.append(self.pred_to_board(pred))
+            boards = boards[-STABLE_FRAMES:]
+            if len(boards) == STABLE_FRAMES and all(
+                    np.array_equal(boards[0], item)
+                    for item in boards[1:]):
+                break
+
+        if not (len(boards) == STABLE_FRAMES and all(
+                np.array_equal(boards[0], item) for item in boards[1:])):
+            logger.warning("画面持续变化, 使用最后一次识别结果")
+        board = boards[-1]
+
+        board, turn = self.check_board(board)
+        if board is None:
+            return
 
         if turn == Chess.RED and self.settings.redside.currentIndex() != 1:
             self.settings.redside.setCurrentIndex(1)
@@ -597,8 +817,12 @@ class Game(BoardFrame, BaseContextMenuMixin):
             if board[pos1] != 0 and board[pos2] != 0:
                 return
 
-            assert (board[pos1] == 0 or board[pos2] == 0)
-            assert (board[pos1] != 0 or board[pos2] != 0)
+            if board[pos1] == 0 and board[pos2] == 0:
+                # 两个格子同时变空不是一次合法走子（一般是抓到了
+                # 走子动画的中间帧或识别抖动），跳过本帧等下次截图
+                logger.debug(
+                    "invalid board diff %s %s, skip...", pos1, pos2)
+                return
             if board[pos1] == 0:
                 fpos = pos1
                 tpos = pos2
@@ -627,6 +851,11 @@ class Game(BoardFrame, BaseContextMenuMixin):
             self.updateBoard,
             self.settings.ui.animate.isChecked(),
         )
+
+    @QtCore.Slot(tuple, tuple)
+    def engine_move(self, fpos, tpos):
+        # 引擎线程只能通过信号触发走子，保证引擎状态只在主线程里修改
+        self.move(fpos, tpos)
 
     def move(self, fpos, tpos):
         self.game_signal.thinking.emit(False)
@@ -689,7 +918,8 @@ class Game(BoardFrame, BaseContextMenuMixin):
     def engine_callback(self, type, data):
         if type == Chess.MOVE:
             time.sleep(self.settings.delay.value() / 1000)
-            self.move(data[0], data[1])
+            # 通过信号把走子交给主线程处理，避免多线程同时修改引擎状态
+            self.game_signal.engine_move.emit(data[0], data[1])
         elif type == Chess.INFO:
             logger.debug(data)
         elif type == Chess.POPHASH:
@@ -716,18 +946,26 @@ class Game(BoardFrame, BaseContextMenuMixin):
         self.move(self.fpos, pos)
 
     def closeEvent(self, event):
-        self.engine.close()
+        # 停止连线线程，并结束所有引擎进程
+        self.connected = False
+        for engine in self.engines.values():
+            if engine:
+                engine.close()
+        if self.engine:
+            self.engine.close()
         return super().closeEvent(event)
 
     def connecting(self):
         self.connected = not self.connected
         if not self.connected:
-            if hasattr(self, 'connect_task'):
-                self.connect_task.join()
+            # 后台线程会在本次循环结束时自行退出，不阻塞界面
             return
 
+        token = object()
+        self.connect_token = token
+
         def task():
-            while self.connected:
+            while self.connected and self.connect_token is token:
                 self.game_signal.capture.emit()
                 logger.debug('connecting... task')
                 time.sleep(2)

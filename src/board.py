@@ -2,6 +2,8 @@
 '''
 (C) Copyright 2021 Steven;
 @author: Steven kangweibaby@163.com
+(C) Copyright 2026 Zhang-ikun;
+@maintainer: Zhang-ikun 2439884871@qq.com
 @date: 2021-05-31
 
 PySide6 棋盘基础控件，只用于棋盘的展示，和点击回调。
@@ -88,7 +90,7 @@ class Board(QLabel):
         if os.name == 'nt':
             logger.info("set model id")
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                f'StevenBaby.Chess.{VERSION}'
+                f'Zhang-ikun.Chess.{VERSION}'
             )
 
         self.setObjectName(u"Board")

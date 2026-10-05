@@ -1,6 +1,8 @@
 '''
 (C) Copyright 2021 Steven;
 @author: Steven kangweibaby@163.com
+(C) Copyright 2026 Zhang-ikun;
+@maintainer: Zhang-ikun 2439884871@qq.com
 @date: 2021-06-22
 '''
 
@@ -95,8 +97,14 @@ class Toast(QtWidgets.QWidget):
         # logger.info('toast close parent %s...', self.parentWidget())
         super().close()
         if self.parentWidget() is None:
-            # logger.info("toast quit...")
-            QtCore.QCoreApplication.quit()
+            app = QtWidgets.QApplication.instance()
+            windows = [
+                widget for widget in app.topLevelWidgets()
+                if widget is not self and widget.isVisible()
+            ] if app else []
+            if not windows:
+                # logger.info("toast quit...")
+                QtCore.QCoreApplication.quit()
 
 
 if __name__ == '__main__':

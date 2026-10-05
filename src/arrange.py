@@ -3,11 +3,14 @@
 '''
 (C) Copyright 2021 Steven;
 @author: Steven kangweibaby@163.com
+(C) Copyright 2026 Zhang-ikun;
+@maintainer: Zhang-ikun 2439884871@qq.com
 @date: 2021-06-25
 '''
 import numpy as np
 from PySide6 import QtWidgets
 from PySide6 import QtCore
+from PySide6 import QtGui
 
 from board import Board
 from board import BoardSignal
@@ -126,6 +129,7 @@ class ArrangeSignal(BoardSignal):
     side = QtCore.Signal(int)
     finish = QtCore.Signal(bool)
     clear = QtCore.Signal(None)
+    cancel = QtCore.Signal(None)
 
 
 class ArrangeContextMenu(BaseContextMenu):
@@ -136,7 +140,39 @@ class ArrangeContextMenu(BaseContextMenu):
         ('黑方先行', '', lambda self: self.signal.side.emit(Chess.BLACK), True),
         'separator',
         ('完成布局', '', lambda self: self.signal.finish.emit(False), True),
+        ('取消布局', 'Esc', lambda self: self.signal.cancel.emit(), True),
     ]
+
+    def __init__(self, parent=None, signal=None):
+        super().__init__(parent, signal)
+
+        self.board = None
+
+        self.red_action = self.get_action('红方先行')
+        self.black_action = self.get_action('黑方先行')
+
+        # 先行方做成单选，当前选项会带上勾选标记
+        self.side_group = QtGui.QActionGroup(self)
+        self.side_group.setExclusive(True)
+        for action in (self.red_action, self.black_action):
+            action.setCheckable(True)
+            self.side_group.addAction(action)
+
+        self.aboutToShow.connect(self.refresh_side)
+
+    def get_action(self, name):
+        for action in self.all_actions:
+            if action.text() == name:
+                return action
+        return None
+
+    def refresh_side(self):
+        '''打开菜单时刷新先行方的勾选状态'''
+        if self.board is None:
+            return
+
+        self.red_action.setChecked(self.board.first_side == Chess.RED)
+        self.black_action.setChecked(self.board.first_side == Chess.BLACK)
 
 
 class ClickedLabel(QtWidgets.QLabel):
@@ -250,11 +286,13 @@ class ArrangeBoard(Board, PositionValidator):
         self.position = None
         self.arranging = False
         self.arrange_menu = ArrangeContextMenu(parent, self.signal)
+        self.arrange_menu.board = self
         self.first_side = Chess.RED
 
         self.signal.finish.connect(self.finishArrange)
         self.signal.side.connect(self.changeSide)
         self.signal.clear.connect(self.newBoard)
+        self.signal.cancel.connect(self.cancelArrange)
 
         self.toast = Toast(parent)
 
@@ -274,6 +312,10 @@ class ArrangeBoard(Board, PositionValidator):
     def changeSide(self, side):
         logger.debug('finish side %s', side)
         self.first_side = side
+
+    def cancelArrange(self):
+        self.selector.hide()
+        self.arranging = False
 
     def newBoard(self):
         self.board = np.mat(np.zeros((Chess.WIDTH, Chess.HEIGHT)), dtype=int)

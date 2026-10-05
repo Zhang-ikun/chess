@@ -12,8 +12,8 @@
 
 > **维护说明**
 >
-> 本项目原作为 [StevenBaby/chess](https://github.com/StevenBaby/chess)（作者 Steven，MIT 协议），原作者长期未维护，部分功能已无法正常使用。
->  现[Zhang-ikun](https://github.com/Zhang-ikun) 继续维护，问题反馈 / 建议请联系：2439884871@qq.com；QQ群：718162597
+> 本项目原作为 [StevenBaby/chess](https://github.com/StevenBaby/chess)（作者 Steven，MIT 协议），由于长期未维护，部分功能已无法正常使用。
+>  现[Zhang-ikun](https://github.com/Zhang-ikun) 继续维护，问题反馈 / 建议请联系：2439884871@qq.com；QQ群：718162597。
 
 ## 修改日志
 

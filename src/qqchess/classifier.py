@@ -1,6 +1,7 @@
 import os
 import glob
 import itertools
+import io
 import pickle
 
 import cv2
@@ -11,6 +12,7 @@ from PIL import Image
 import torch
 import torch.nn as nn
 import torch.cuda
+import torch.storage
 import torch.nn.functional as F
 import torch.utils.data
 
@@ -31,17 +33,30 @@ from logger import logger
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
-    type = torch.cuda.FloatTensor
 else:
     device = torch.device("cpu")
-    type = torch.FloatTensor
-torch.set_default_tensor_type(type)
+
+torch.set_default_dtype(torch.float32)
+torch.set_default_device(device)
 
 
 DIRNAME = os.path.dirname(__file__)
 MODELPATH = os.path.join(DIRNAME, 'model.pkl')
 QQBOARD = os.path.join(DIRNAME, 'images/qqboard*.png')
 model = None
+
+# 供调试菜单查看的最近一次识别信息
+DEBUG_INFO = {
+    'window': None,
+    'board': None,
+    'pieces': 0,
+    'pred': None,
+    'error': None,
+}
+
+
+def get_debug_info():
+    return DEBUG_INFO
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -212,6 +227,25 @@ def save_model(model):
         file.write(pickle.dumps(model))
 
 
+def _loads(data: bytes) -> nn.Module:
+    # 模型文件可能保存在 CUDA 设备上，直接 pickle.loads 时内部 storage 会
+    # 按原设备恢复，本机没有 CUDA 时会报
+    # "Attempting to deserialize object on a CUDA device ..."。
+    # 这里在反序列化 storage 时把数据映射到当前可用设备上。
+    original = getattr(torch.storage, '_load_from_bytes', None)
+    if original is None:
+        return pickle.loads(data)
+
+    def load_from_bytes(b):
+        return torch.load(io.BytesIO(b), map_location=device)
+
+    torch.storage._load_from_bytes = load_from_bytes
+    try:
+        return pickle.loads(data)
+    finally:
+        torch.storage._load_from_bytes = original
+
+
 def load_model() -> nn.Module:
     logger.info("load model...")
     if not os.path.exists(MODELPATH):
@@ -219,7 +253,8 @@ def load_model() -> nn.Module:
         save_model(model)
     else:
         with open(MODELPATH, 'rb') as file:
-            model = pickle.loads(file.read())
+            model = _loads(file.read())
+        model.to(device)
         model.eval()
     logger.info("load model finish...")
     return model
@@ -232,17 +267,38 @@ def get_model():
     return model
 
 
-def get_board():
-    img = capture.capture("天天象棋")
-    if not img:
-        return None
+def get_board(image=None):
+    """识别棋盘。image 为 None 时抓取「天天象棋」窗口，否则识别传入的图片。"""
+    DEBUG_INFO.update(
+        window=None, board=None, pieces=0, pred=None, error=None)
 
-    img = np.asarray(img).copy()
+    if image is None:
+        img = capture.capture("天天象棋")
+        if not img:
+            DEBUG_INFO['error'] = "未找到「天天象棋」窗口"
+            return None
+    else:
+        img = image
+
+    DEBUG_INFO['window'] = img
+    if hasattr(img, 'convert'):
+        img = img.convert('RGB')
+    img = np.asarray(img)
+    if img.ndim == 3 and img.shape[2] == 4:
+        img = img[:, :, :3]
+    img = img.copy()
     img = find_board(img)
     if img is None:
+        DEBUG_INFO['error'] = "窗口中未检测到棋盘"
         return None
 
-    pieces, locs = make_pieces(img)
+    DEBUG_INFO['board'] = img
+    result = make_pieces(img)
+    if result is None:
+        DEBUG_INFO['error'] = "棋盘上未检测到棋子"
+        return None
+    pieces, locs = result
+    DEBUG_INFO['pieces'] = len(pieces)
 
     x = []
     for piece in pieces:
@@ -257,4 +313,5 @@ def get_board():
     for i, idx in enumerate(idxs):
         board[locs[i]] = idx
 
+    DEBUG_INFO['pred'] = board
     return board

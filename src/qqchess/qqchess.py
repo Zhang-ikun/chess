@@ -48,16 +48,24 @@ def find_board(img: np.array) -> np.ndarray:
             continue
 
         ratio = w / h
-        if ratio > 0.91 or ratio < 0.89:
+        if ratio > 0.93 or ratio < 0.87:
             continue
 
         # cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 2)
         rects.append(rect)
 
     if not rects:
-        return None
+        # 截图工具刚好只截了棋盘时，图中没有可用的棋盘轮廓，
+        # 此时整张图就是棋盘
+        height, width = img.shape[:2]
+        ratio = width / height
+        if not 0.8 < ratio < 1.0:
+            return None
+        rects.append((0, 0, width, height))
 
-    (x, y, w, h) = rects[0]
+    # 截图中可能还存在其他近似比例的矩形（棋子局部、界面元素等），
+    # 棋盘是其中面积最大的那个
+    (x, y, w, h) = max(rects, key=lambda rect: rect[2] * rect[3])
     croped = img[y:y + h, x: x + w]
 
     out = croped

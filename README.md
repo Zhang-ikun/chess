@@ -1,11 +1,32 @@
 # 中国象棋
 
+![maintainer](https://img.shields.io/badge/maintainer-Zhang--ikun-blue)
+![status](https://img.shields.io/badge/status-maintained-brightgreen)
+![version](https://img.shields.io/badge/version-3.1.0-orange)
+![license](https://img.shields.io/badge/license-MIT-green)
+![platform](https://img.shields.io/badge/platform-Windows-lightgrey)
+
 一个中国象棋的程序
 
 ![](./snapshots/snapshot.jpg)
 
+> **维护说明**
+>
+> 本项目原作为 [StevenBaby/chess](https://github.com/StevenBaby/chess)（作者 Steven，MIT 协议），原作者长期未维护。
+> 现由 [Zhang-ikun](https://github.com/Zhang-ikun) 接手继续维护，问题反馈 / 建议请联系：2439884871@qq.com
+
 ## 修改日志
 
+- [2026-10-05] v3.1.0（Zhang-ikun 维护版，基于原作者的 v3.0.0）
+    - 修复：新版天天象棋客户端截图全黑导致连线不可用
+    - 修复：模型文件在无 CUDA 环境下无法加载
+    - 修复：退出程序后引擎子进程残留
+    - 修复：粘贴纯 FEN / 文件链接 / GBK 棋谱无法载入；新增"粘贴图片识别局面"
+    - 修复：设置对话框（"总是在上"不生效、深度/时间可设为 0 等）
+    - 新增：调试窗口（查看识别原始截图、棋盘裁剪与失败原因）
+    - 新增：布局模式"取消布局"，先行方改为勾选式单选
+    - 优化：连线识别更稳（连续 3 帧稳定判定、跳过动画中间帧）
+    - 优化：引擎走子改为信号回主线程执行，消除多线程数据竞争
 - [2024-01-28] v3.0.0
     - 支持天天象棋连线
         - 目前仅支持默认皮肤
